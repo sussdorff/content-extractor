@@ -30,14 +30,14 @@ def list_channel_videos(
     """
     cmd = [
         "yt-dlp", "--dump-json", "--skip-download",
-        "--flat-playlist", "--no-warnings",
-        f"--playlist-items", f"1-{limit}",
+        "--no-warnings",
+        "--playlist-items", f"1-{limit}",
     ]
     if dateafter:
         cmd += ["--dateafter", dateafter]
     cmd.append(url)
 
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     if proc.returncode != 0:
         return []
 
