@@ -6,6 +6,7 @@ from .base import ExtractorRegistry
 from .adapters.agenticcoding import AgenticCodingAdapter
 from .adapters.catalog import CatalogAdapter
 from .adapters.drive import GoogleDriveAdapter
+from .adapters.excalidraw import ExcalidrawAdapter
 from .adapters.generic_web import GenericWebAdapter
 from .adapters.medium import MediumAdapter
 from .adapters.notion import NotionAdapter
@@ -17,6 +18,7 @@ def build_registry() -> ExtractorRegistry:
     """Build registry with all available adapters (order matters: first match wins)."""
     registry = ExtractorRegistry()
     registry.register(AgenticCodingAdapter())
+    registry.register(ExcalidrawAdapter())
     registry.register(SubstackAdapter())
     registry.register(NotionAdapter())
     registry.register(GoogleDriveAdapter())

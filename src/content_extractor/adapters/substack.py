@@ -33,6 +33,8 @@ def classify_link(url: str, text: str) -> dict | None:
         resource_type = "google_drive"
     elif "youtu.be" in url or "youtube.com" in url:
         resource_type = "youtube"
+    elif "excalidraw.com" in url:
+        resource_type = "excalidraw"
     elif "substack.com" in url and "/p/" not in url:
         return None  # Skip internal substack nav links
 
