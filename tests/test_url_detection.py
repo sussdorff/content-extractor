@@ -35,6 +35,16 @@ class TestDetectSource:
         assert detect_source("https://example.com/article") == "web"
 
 
+    def test_youtube_channel_handle(self):
+        assert detect_source("https://www.youtube.com/@indydevdan/videos") == "youtube"
+
+    def test_youtube_channel_id(self):
+        assert detect_source("https://www.youtube.com/channel/UCxyz123") == "youtube"
+
+    def test_youtube_playlist(self):
+        assert detect_source("https://www.youtube.com/playlist?list=PLxyz123") == "youtube"
+
+
 class TestSlugFromUrl:
     def test_substack_slug(self):
         assert _slug_from_url("https://sub.substack.com/p/my-article") == "my-article"
@@ -44,6 +54,18 @@ class TestSlugFromUrl:
 
     def test_youtube_short(self):
         assert _slug_from_url("https://youtu.be/abc123") == "youtube-abc123"
+
+    def test_youtube_channel_handle(self):
+        assert _slug_from_url("https://www.youtube.com/@indydevdan") == "youtube-indydevdan"
+
+    def test_youtube_channel_handle_with_videos(self):
+        assert _slug_from_url("https://www.youtube.com/@indydevdan/videos") == "youtube-indydevdan"
+
+    def test_youtube_channel_id(self):
+        assert _slug_from_url("https://www.youtube.com/channel/UCxyz123") == "youtube-UCxyz123"
+
+    def test_youtube_playlist_slug(self):
+        assert _slug_from_url("https://www.youtube.com/playlist?list=PLxyz123") == "youtube-PLxyz123"
 
     def test_path_segment(self):
         assert _slug_from_url("https://example.com/blog/my-post") == "my-post"

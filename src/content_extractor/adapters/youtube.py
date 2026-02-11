@@ -5,9 +5,58 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 from ..base import ExtractionResult
+
+_CHANNEL_PATTERNS = re.compile(
+    r"youtube\.com/(@[\w.-]+|c/[\w.-]+|channel/[\w-]+)"
+)
+_PLAYLIST_PATTERN = re.compile(r"youtube\.com/playlist\?list=")
+
+
+def is_channel_or_playlist(url: str) -> bool:
+    """Return True if *url* points to a YouTube channel or playlist."""
+    return bool(_CHANNEL_PATTERNS.search(url) or _PLAYLIST_PATTERN.search(url))
+
+
+def list_channel_videos(
+    url: str, dateafter: str | None = None, limit: int = 50,
+) -> list[dict]:
+    """Fetch video metadata from a channel/playlist via yt-dlp.
+
+    Returns a list of dicts with keys: id, title, upload_date, url.
+    """
+    cmd = [
+        "yt-dlp", "--dump-json", "--skip-download",
+        "--flat-playlist", "--no-warnings",
+        f"--playlist-items", f"1-{limit}",
+    ]
+    if dateafter:
+        cmd += ["--dateafter", dateafter]
+    cmd.append(url)
+
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    if proc.returncode != 0:
+        return []
+
+    videos = []
+    for line in proc.stdout.strip().splitlines():
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        videos.append({
+            "id": entry.get("id", ""),
+            "title": entry.get("title", ""),
+            "upload_date": entry.get("upload_date", ""),
+            "url": entry.get("url") or entry.get("webpage_url")
+                   or f"https://www.youtube.com/watch?v={entry.get('id', '')}",
+        })
+    return videos
 
 
 class YouTubeAdapter:
@@ -15,6 +64,75 @@ class YouTubeAdapter:
 
     def can_handle(self, url: str, resource_type: str = "") -> bool:
         return "youtu.be" in url or "youtube.com" in url
+
+    def extract_channel(
+        self,
+        url: str,
+        output_dir: Path,
+        dateafter: str | None = None,
+    ) -> dict:
+        """Extract transcripts from all recent videos on a channel/playlist.
+
+        Args:
+            url: Channel or playlist URL.
+            output_dir: Base directory for per-video subdirectories.
+            dateafter: Optional ``YYYYMMDD`` date filter for yt-dlp.
+
+        Returns:
+            Summary dict with channel info and per-video results.
+        """
+        print(f"  Fetching video list from {url} ...", file=sys.stderr)
+        videos = list_channel_videos(url, dateafter=dateafter)
+        if not videos:
+            return {
+                "success": False,
+                "error": "No videos found (or yt-dlp failed)",
+                "channel": url,
+                "videos": [],
+                "total": 0,
+                "extracted": 0,
+            }
+
+        print(f"  Found {len(videos)} videos, extracting ...", file=sys.stderr)
+        results: list[dict] = []
+        for i, video in enumerate(videos, 1):
+            vid_url = video["url"]
+            slug = f"youtube-{video['id']}" if video.get("id") else f"youtube-{i}"
+            vid_dir = output_dir / slug
+            vid_dir.mkdir(parents=True, exist_ok=True)
+
+            print(f"  [{i}/{len(videos)}] {video.get('title', vid_url)}", file=sys.stderr)
+            result = self.extract(vid_url, video.get("title", ""), vid_dir)
+            results.append({
+                "id": video["id"],
+                "title": video.get("title", ""),
+                "url": vid_url,
+                "success": result.success,
+                "error": result.error,
+                "files_created": result.files_created,
+            })
+
+        extracted_count = sum(1 for r in results if r["success"])
+        summary = {
+            "success": extracted_count > 0,
+            "channel": url,
+            "videos": results,
+            "total": len(videos),
+            "extracted": extracted_count,
+        }
+
+        # Write channel summary
+        summary_path = output_dir / "channel-summary.json"
+        summary_path.write_text(
+            json.dumps(summary, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
+        print(
+            f"  Channel done: {extracted_count}/{len(videos)} videos extracted",
+            file=sys.stderr,
+        )
+        return summary
 
     def extract(self, url: str, link_text: str, article_dir: Path) -> ExtractionResult:
         # Check yt-dlp availability

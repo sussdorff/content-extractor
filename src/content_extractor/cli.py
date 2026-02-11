@@ -19,14 +19,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import time
 from dataclasses import asdict
+from datetime import datetime, timedelta
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from .adapters.medium import MEDIUM_DOMAINS
 from .adapters.substack import DEFAULT_OUTPUT, dispatch_resources, extract_article
+from .adapters.youtube import is_channel_or_playlist
 from .base import ExtractionResult, ExtractorRegistry
 from .browser import ab_close
 from .hooks import (
@@ -37,6 +40,42 @@ from .hooks import (
 )
 from .registry import build_registry
 from .utils import _url_to_slug
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+_SINCE_RE = re.compile(r"^(\d+)([dwm])$")
+
+
+def parse_since(value: str) -> str:
+    """Convert a human-friendly period to ``YYYYMMDD`` for yt-dlp ``--dateafter``.
+
+    Accepted formats:
+        * ``4w`` — 4 weeks ago
+        * ``30d`` — 30 days ago
+        * ``3m`` — 3 months (approx. 30 days each)
+        * ``2025-01-15`` — ISO date passed through
+    """
+    m = _SINCE_RE.match(value.strip())
+    if m:
+        amount, unit = int(m.group(1)), m.group(2)
+        if unit == "w":
+            delta = timedelta(weeks=amount)
+        elif unit == "d":
+            delta = timedelta(days=amount)
+        else:  # "m"
+            delta = timedelta(days=amount * 30)
+        target = datetime.now() - delta
+        return target.strftime("%Y%m%d")
+
+    # Try ISO date
+    cleaned = value.strip().replace("-", "")
+    if re.match(r"^\d{8}$", cleaned):
+        return cleaned
+
+    raise ValueError(f"Invalid --since value: {value!r}  (expected e.g. 4w, 30d, 2025-01-15)")
 
 
 # ---------------------------------------------------------------------------
@@ -65,10 +104,22 @@ def _slug_from_url(url: str) -> str:
     # Substack /p/slug
     if "/p/" in path:
         return path.split("/p/")[-1]
-    # YouTube watch?v=ID
+    # YouTube channel / playlist / video
     if "youtu" in url:
-        from urllib.parse import parse_qs
         qs = parse_qs(parsed.query)
+        # Playlist
+        pl = qs.get("list", [""])[0]
+        if pl:
+            return f"youtube-{pl}"
+        # Channel: /@handle, /c/name, /channel/UCxxx
+        chan_match = re.search(r"/(@[\w.-]+|c/([\w.-]+)|channel/([\w-]+))", path)
+        if chan_match:
+            handle = chan_match.group(1)
+            if handle.startswith("@"):
+                return f"youtube-{handle.lstrip('@')}"
+            # /c/Name or /channel/UCxxx — use the captured subgroup
+            return f"youtube-{chan_match.group(2) or chan_match.group(3)}"
+        # Single video watch?v=ID
         vid = qs.get("v", [""])[0]
         if vid:
             return f"youtube-{vid}"
@@ -91,6 +142,7 @@ def extract_url(
     output_dir: Path = DEFAULT_OUTPUT,
     skip_resources: bool = False,
     hooks: list[PostExtractionHook] | None = None,
+    since: str | None = None,
 ) -> dict:
     """Extract content from a single URL, auto-detecting the source type.
 
@@ -99,6 +151,8 @@ def extract_url(
         output_dir: Base directory for output (default: ``output/``).
         skip_resources: If True, skip extracting linked resources.
         hooks: Optional list of post-extraction hooks to run.
+        since: Optional date filter (e.g. ``4w``, ``30d``, ``2025-01-15``).
+               Converted to ``YYYYMMDD`` for yt-dlp ``--dateafter``.
 
     Returns:
         Dictionary with extraction results and metadata.
@@ -109,7 +163,7 @@ def extract_url(
     if source == "substack":
         out = _extract_substack(url, output_dir, skip_resources)
     else:
-        out = _extract_generic(url, source, output_dir, skip_resources)
+        out = _extract_generic(url, source, output_dir, skip_resources, since=since)
 
     # Run post-extraction hooks
     if hooks and out.get("success", True) and not out.get("error"):
@@ -131,6 +185,7 @@ def _extract_generic(
     source: str,
     output_dir: Path,
     skip_resources: bool,
+    since: str | None = None,
 ) -> dict:
     """Handle non-Substack URLs via the registry."""
     registry = build_registry()
@@ -140,6 +195,16 @@ def _extract_generic(
     slug = _slug_from_url(url)
     article_dir = output_dir / slug
     article_dir.mkdir(parents=True, exist_ok=True)
+
+    # Channel/playlist extraction for YouTube
+    if source == "youtube" and is_channel_or_playlist(url):
+        dateafter = parse_since(since) if since else None
+        out = adapter.extract_channel(url, article_dir, dateafter=dateafter)
+        out["url"] = url
+        out["source_type"] = source
+        out["output_dir"] = str(article_dir)
+        print(f"  Done: {article_dir}/", file=sys.stderr)
+        return out
 
     result = adapter.extract(url, "", article_dir)
 
@@ -247,6 +312,10 @@ def main():
         help="Path to a hook script (can be specified multiple times)",
     )
     parser.add_argument(
+        "--since", metavar="PERIOD",
+        help="Only extract content from this period (e.g. 4w, 30d, 2025-01-15)",
+    )
+    parser.add_argument(
         "--no-config-hooks", action="store_true",
         help="Disable loading hooks from .content-extractor.toml",
     )
@@ -287,6 +356,7 @@ def main():
                 output_dir=args.output_dir,
                 skip_resources=args.skip_resources,
                 hooks=all_hooks or None,
+                since=args.since,
             )
             print(json.dumps(result, indent=2, ensure_ascii=False))
         else:
@@ -298,6 +368,7 @@ def main():
                     output_dir=args.output_dir,
                     skip_resources=args.skip_resources,
                     hooks=all_hooks or None,
+                    since=args.since,
                 )
                 results.append(result)
                 if i < len(urls):
