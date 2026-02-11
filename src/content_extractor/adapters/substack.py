@@ -338,6 +338,7 @@ def dispatch_resources(
 ) -> list[dict]:
     """Extract all linked resources from an article's metadata."""
     import sys
+    from dataclasses import asdict
 
     from ..registry import build_registry
 
@@ -366,7 +367,7 @@ def dispatch_resources(
         resource_type = link.get("resourceType", "external")
         adapter = registry.get_adapter(url, resource_type)
         result = adapter.extract(url, link.get("linkText", ""), article_dir)
-        results.append(result)
+        results.append(asdict(result) if hasattr(result, '__dataclass_fields__') else result)
 
     return results
 
