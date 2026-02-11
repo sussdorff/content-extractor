@@ -6,7 +6,9 @@ import json
 import re
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 from ..base import ExtractionResult
 from ..utils import _extract_json_array, _extract_json_object
@@ -110,6 +112,10 @@ CLASS_STRUCTURE_JS = """
             const nameNode = flex1?.childNodes[0];
             const durSpan = el.querySelector('span.ml-2');
             const isActive = el.className.includes('font-medium');
+
+            // Try to extract the URL with videoId by triggering the click handler
+            // Lessons are clickable <li> elements; we can read data attributes or
+            // the URL after click. For now, capture what's available statically.
             currentChapter.lessons.push({
                 title: nameNode?.textContent?.trim() || '',
                 duration: durSpan?.textContent?.trim() || '',
@@ -242,6 +248,28 @@ def _parse_transcript(raw_text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Date helpers
+# ---------------------------------------------------------------------------
+
+def _parse_published_date(date_str: str | None) -> str | None:
+    """Parse a published date like 'Feb 7, 2026' to YYYYMMDD format.
+
+    Returns None if parsing fails.
+    """
+    if not date_str:
+        return None
+    # Handle formats: "Feb 7, 2026", "February 7, 2026", "Feb 7 2026"
+    cleaned = date_str.strip().replace(",", "")
+    for fmt in ("%b %d %Y", "%B %d %Y"):
+        try:
+            dt = datetime.strptime(cleaned, fmt)
+            return dt.strftime("%Y%m%d")
+        except ValueError:
+            continue
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Class listing
 # ---------------------------------------------------------------------------
 
@@ -270,12 +298,239 @@ def list_classes() -> list[dict]:
     return unique
 
 
+def list_lessons(url: str) -> dict:
+    """List all lessons for a class, grouped by chapter.
+
+    Navigates to the class page, parses the structure, then clicks each
+    lesson to capture its URL (with videoId/chapterId parameters).
+
+    Returns a dict with title, url, and chapters (each with lessons).
+    """
+    print(f"Opening class: {url}", file=sys.stderr)
+    _ab_open(url)
+    time.sleep(2)
+
+    raw = _ab_eval(CLASS_STRUCTURE_JS)
+    try:
+        structure = json.loads(_extract_json_object(raw))
+    except (json.JSONDecodeError, ValueError) as e:
+        print(f"Error parsing class structure: {e}", file=sys.stderr)
+        return {"error": str(e), "url": url, "chapters": []}
+
+    class_title = structure.get("title", "Unknown Class")
+    chapters = structure.get("chapters", [])
+    chapters = [ch for ch in chapters if ch.get("lessons")]
+
+    total_lessons = sum(len(ch["lessons"]) for ch in chapters)
+    print(f"Class: {class_title}", file=sys.stderr)
+    print(f"Chapters: {len(chapters)}, Lessons: {total_lessons}", file=sys.stderr)
+
+    # Click each lesson to capture the URL with videoId parameter
+    lesson_idx = 0
+    for chapter in chapters:
+        for lesson in chapter["lessons"]:
+            _ab_eval(CLICK_LESSON_JS.format(idx=lesson_idx))
+            time.sleep(1)
+            # Capture URL after click
+            current_url = _ab_eval("window.location.href")
+            lesson["url"] = current_url
+            # Extract videoId from URL
+            parsed = urlparse(current_url)
+            qs = parse_qs(parsed.query)
+            lesson["videoId"] = qs.get("videoId", [None])[0]
+            lesson["chapterId"] = qs.get("chapterId", [None])[0]
+            lesson_idx += 1
+
+    return {
+        "title": class_title,
+        "url": url,
+        "chapters": chapters,
+        "total_lessons": total_lessons,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Single class extraction
 # ---------------------------------------------------------------------------
 
-def extract_class(url: str, output_dir: Path) -> dict:
-    """Extract all lessons from a single class.
+def _extract_single_lesson(
+    url: str,
+    output_dir: Path,
+    chapter_name: str = "single",
+) -> dict:
+    """Extract a single lesson by navigating directly to its URL.
+
+    The URL must contain videoId (and optionally chapterId) parameters.
+    """
+    print(f"Opening lesson: {url}", file=sys.stderr)
+    _ab_open(url)
+    time.sleep(3)
+
+    # Get lesson metadata
+    meta_raw = _ab_eval(GET_LESSON_META_JS)
+    try:
+        lesson_page_meta = json.loads(_extract_json_object(meta_raw))
+    except (json.JSONDecodeError, ValueError):
+        lesson_page_meta = {}
+
+    video_url = lesson_page_meta.get("videoUrl")
+    published_date = lesson_page_meta.get("publishedDate")
+    lesson_url = lesson_page_meta.get("url", url)
+
+    # Get class structure to find the lesson title and chapter
+    raw = _ab_eval(CLASS_STRUCTURE_JS)
+    try:
+        structure = json.loads(_extract_json_object(raw))
+    except (json.JSONDecodeError, ValueError):
+        structure = {}
+
+    class_title = structure.get("title", "Unknown Class")
+
+    # Find the active lesson in the structure
+    lesson_title = "Unknown Lesson"
+    for ch in structure.get("chapters", []):
+        for lesson in ch.get("lessons", []):
+            if lesson.get("isActive"):
+                lesson_title = lesson.get("title", lesson_title)
+                chapter_name = ch.get("name", chapter_name)
+                break
+
+    lesson_slug = _slugify(lesson_title)
+    chapter_slug = _slugify(chapter_name)
+    lesson_dir = output_dir / chapter_slug / lesson_slug
+    lesson_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"  Lesson: {chapter_name} / {lesson_title}", file=sys.stderr)
+
+    all_files = []
+    all_excalidraws = []
+
+    # Extract Description
+    _ab_eval(CLICK_TAB_JS.format(tab_name="Description"))
+    time.sleep(1)
+
+    desc_raw = _ab_eval(GET_DESCRIPTION_JS)
+    try:
+        desc_data = json.loads(_extract_json_object(desc_raw))
+    except (json.JSONDecodeError, ValueError):
+        desc_data = {"text": "", "links": [], "html": ""}
+
+    desc_links = desc_data.get("links", [])
+    desc_text = desc_data.get("text", "")
+
+    excalidraw_links = [
+        l for l in desc_links if "excalidraw.com" in l.get("href", "")
+    ]
+    other_links = [
+        l for l in desc_links if "excalidraw.com" not in l.get("href", "")
+    ]
+
+    if desc_text.strip():
+        desc_md = f"# {lesson_title} - Description\n\n"
+        if excalidraw_links:
+            desc_md += "## Excalidraw Diagrams\n\n"
+            for link in excalidraw_links:
+                desc_md += f"- [{link['text']}]({link['href']})\n"
+            desc_md += "\n"
+        if other_links:
+            desc_md += "## Links\n\n"
+            for link in other_links:
+                desc_md += f"- [{link['text']}]({link['href']})\n"
+            desc_md += "\n"
+        (lesson_dir / "description.md").write_text(desc_md, encoding="utf-8")
+        all_files.append(
+            str(lesson_dir.relative_to(output_dir) / "description.md")
+        )
+
+    all_excalidraws.extend(
+        {"lesson": lesson_title, "chapter": chapter_name, **l}
+        for l in excalidraw_links
+    )
+
+    # Extract Transcript
+    _ab_eval(CLICK_TAB_JS.format(tab_name="Transcript"))
+    time.sleep(2)
+
+    transcript_raw = _ab_eval(GET_TRANSCRIPT_JS, timeout=15)
+    try:
+        transcript_data = json.loads(_extract_json_object(transcript_raw))
+    except (json.JSONDecodeError, ValueError):
+        transcript_data = {"text": ""}
+
+    transcript_text = transcript_data.get("text", "")
+    transcript_md = ""
+    if transcript_text and len(transcript_text) > 50:
+        parsed = _parse_transcript(transcript_text)
+        transcript_md = (
+            f"# {lesson_title} - Transcript\n\n"
+            f"**Chapter**: {chapter_name}\n\n"
+            f"---\n\n{parsed}\n"
+        )
+        (lesson_dir / "transcript.md").write_text(
+            transcript_md, encoding="utf-8"
+        )
+        all_files.append(
+            str(lesson_dir.relative_to(output_dir) / "transcript.md")
+        )
+
+    # Write lesson metadata
+    lesson_meta = {
+        "title": lesson_title,
+        "chapter": chapter_name,
+        "publishedDate": published_date,
+        "videoUrl": video_url,
+        "lessonUrl": lesson_url,
+        "links": desc_links,
+        "excalidraw_links": excalidraw_links,
+        "has_transcript": bool(transcript_md),
+    }
+    (lesson_dir / "metadata.json").write_text(
+        json.dumps(lesson_meta, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    all_files.append(
+        str(lesson_dir.relative_to(output_dir) / "metadata.json")
+    )
+
+    # Write class-level metadata
+    class_meta = {
+        "success": True,
+        "resourceType": "agenticcoding",
+        "title": class_title,
+        "url": url,
+        "total_lessons": 1,
+        "lessons": [lesson_meta],
+        "excalidraw_links": all_excalidraws,
+        "files_created": all_files,
+    }
+    (output_dir / "metadata.json").write_text(
+        json.dumps(class_meta, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    print(f"  Saved to {lesson_dir}/", file=sys.stderr)
+    print(f"  Files created: {len(all_files)}", file=sys.stderr)
+
+    return class_meta
+
+
+def _is_single_lesson_url(url: str) -> bool:
+    """Return True if the URL targets a specific lesson (has videoId param)."""
+    parsed = urlparse(url)
+    qs = parse_qs(parsed.query)
+    return bool(qs.get("videoId"))
+
+
+def extract_class(
+    url: str,
+    output_dir: Path,
+    since: str | None = None,
+) -> dict:
+    """Extract lessons from a single class.
+
+    If the URL contains a ``videoId`` parameter, extracts only that lesson.
+    If ``since`` is provided (YYYYMMDD format), skips lessons published before
+    that date.
 
     Creates output structure:
         output_dir/
@@ -285,6 +540,10 @@ def extract_class(url: str, output_dir: Path) -> dict:
                 description.md    (if non-empty)
                 metadata.json
     """
+    # Single lesson extraction: URL has videoId parameter
+    if _is_single_lesson_url(url):
+        return _extract_single_lesson(url, output_dir)
+
     print(f"Opening class: {url}", file=sys.stderr)
     _ab_open(url)
     time.sleep(2)
@@ -306,12 +565,15 @@ def extract_class(url: str, output_dir: Path) -> dict:
     total_lessons = sum(len(ch["lessons"]) for ch in chapters)
     print(f"Class: {class_title}", file=sys.stderr)
     print(f"Chapters: {len(chapters)}, Lessons: {total_lessons}", file=sys.stderr)
+    if since:
+        print(f"  --since filter: only lessons from {since} onwards", file=sys.stderr)
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
     all_lessons = []
     all_files = []
     all_excalidraws = []
+    skipped_count = 0
     lesson_idx = 0  # Global index across all chapters
 
     for chapter in chapters:
@@ -344,6 +606,19 @@ def extract_class(url: str, output_dir: Path) -> dict:
             video_url = lesson_page_meta.get("videoUrl")
             published_date = lesson_page_meta.get("publishedDate")
             lesson_url = lesson_page_meta.get("url", "")
+
+            # --- Apply --since filter ---
+            if since and published_date:
+                parsed_date = _parse_published_date(published_date)
+                if parsed_date and parsed_date < since:
+                    print(
+                        f"    Skipping (published {published_date}, "
+                        f"before {since})",
+                        file=sys.stderr,
+                    )
+                    skipped_count += 1
+                    lesson_idx += 1
+                    continue
 
             # --- Extract Description (links, excalidraws) ---
             _ab_eval(CLICK_TAB_JS.format(tab_name="Description"))
@@ -439,6 +714,8 @@ def extract_class(url: str, output_dir: Path) -> dict:
             all_lessons.append(lesson_meta)
             lesson_idx += 1
 
+    extracted_count = len(all_lessons)
+
     # Write class-level metadata
     class_meta = {
         "success": True,
@@ -453,16 +730,23 @@ def extract_class(url: str, output_dir: Path) -> dict:
             for ch in chapters
         ],
         "total_lessons": total_lessons,
+        "extracted_lessons": extracted_count,
+        "skipped_lessons": skipped_count,
         "excalidraw_links": all_excalidraws,
         "files_created": all_files,
     }
+    if since:
+        class_meta["since_filter"] = since
+
     (output_dir / "metadata.json").write_text(
         json.dumps(class_meta, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
 
     print(f"  Saved to {output_dir}/", file=sys.stderr)
-    print(f"  Lessons extracted: {total_lessons}", file=sys.stderr)
+    print(f"  Lessons extracted: {extracted_count}/{total_lessons}", file=sys.stderr)
+    if skipped_count:
+        print(f"  Lessons skipped (--since): {skipped_count}", file=sys.stderr)
     print(f"  Files created: {len(all_files)}", file=sys.stderr)
     if all_excalidraws:
         print(f"  Excalidraw links: {len(all_excalidraws)}", file=sys.stderr)
@@ -482,8 +766,14 @@ class AgenticCodingAdapter:
     def can_handle(self, url: str, resource_type: str = "") -> bool:
         return "agenticcoding.school" in url
 
-    def extract(self, url: str, link_text: str, article_dir: Path) -> ExtractionResult:
-        metadata = extract_class(url, output_dir=article_dir)
+    def extract(
+        self,
+        url: str,
+        link_text: str,
+        article_dir: Path,
+        since: str | None = None,
+    ) -> ExtractionResult:
+        metadata = extract_class(url, output_dir=article_dir, since=since)
         if metadata.get("error"):
             return ExtractionResult(
                 success=False,

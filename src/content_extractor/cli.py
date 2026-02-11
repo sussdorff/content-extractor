@@ -211,7 +211,12 @@ def _extract_generic(
         print(f"  Done: {article_dir}/", file=sys.stderr)
         return out
 
-    result = adapter.extract(url, "", article_dir)
+    # AgenticCoding: pass --since filter through to the adapter
+    if source == "agenticcoding" and since:
+        dateafter = parse_since(since)
+        result = adapter.extract(url, "", article_dir, since=dateafter)
+    else:
+        result = adapter.extract(url, "", article_dir)
 
     # Normalize result to dict
     if isinstance(result, ExtractionResult):
@@ -321,6 +326,10 @@ def main():
         help="Only extract content from this period (e.g. 4w, 30d, 2025-01-15)",
     )
     parser.add_argument(
+        "--list", action="store_true",
+        help="List lessons/content structure instead of extracting (agenticcoding)",
+    )
+    parser.add_argument(
         "--no-config-hooks", action="store_true",
         help="Disable loading hooks from .content-extractor.toml",
     )
@@ -341,6 +350,37 @@ def main():
     if not urls:
         parser.print_help()
         sys.exit(1)
+
+    # Handle --list flag
+    if args.list:
+        from .adapters.agenticcoding import list_lessons
+
+        for url in urls:
+            source = detect_source(url)
+            if source != "agenticcoding":
+                print(f"--list is only supported for agenticcoding URLs, got: {url}",
+                      file=sys.stderr)
+                sys.exit(1)
+            result = list_lessons(url)
+            if result.get("error"):
+                print(f"Error: {result['error']}", file=sys.stderr)
+                sys.exit(1)
+            # Pretty-print the lesson list
+            print(f"\n{result.get('title', 'Unknown Class')}")
+            print(f"{'=' * len(result.get('title', ''))}")
+            for chapter in result.get("chapters", []):
+                print(f"\n## {chapter['name']}")
+                for lesson in chapter.get("lessons", []):
+                    duration = lesson.get("duration", "")
+                    video_id = lesson.get("videoId", "")
+                    dur_str = f" ({duration})" if duration else ""
+                    vid_str = f"  [videoId={video_id}]" if video_id else ""
+                    print(f"  - {lesson['title']}{dur_str}{vid_str}")
+            total = result.get("total_lessons", 0)
+            print(f"\nTotal: {total} lessons")
+            # Also output JSON to stdout for piping
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+        return
 
     # Load hooks
     all_hooks: list[PostExtractionHook] = []
