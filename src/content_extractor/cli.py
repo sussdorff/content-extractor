@@ -353,7 +353,7 @@ def main():
 
     # Handle --list flag
     if args.list:
-        from .adapters.agenticcoding import list_lessons
+        from .adapters.agenticcoding import list_classes, list_lessons
 
         for url in urls:
             source = detect_source(url)
@@ -361,25 +361,35 @@ def main():
                 print(f"--list is only supported for agenticcoding URLs, got: {url}",
                       file=sys.stderr)
                 sys.exit(1)
-            result = list_lessons(url)
-            if result.get("error"):
-                print(f"Error: {result['error']}", file=sys.stderr)
-                sys.exit(1)
-            # Pretty-print the lesson list
-            print(f"\n{result.get('title', 'Unknown Class')}")
-            print(f"{'=' * len(result.get('title', ''))}")
-            for chapter in result.get("chapters", []):
-                print(f"\n## {chapter['name']}")
-                for lesson in chapter.get("lessons", []):
-                    duration = lesson.get("duration", "")
-                    video_id = lesson.get("videoId", "")
-                    dur_str = f" ({duration})" if duration else ""
-                    vid_str = f"  [videoId={video_id}]" if video_id else ""
-                    print(f"  - {lesson['title']}{dur_str}{vid_str}")
-            total = result.get("total_lessons", 0)
-            print(f"\nTotal: {total} lessons")
-            # Also output JSON to stdout for piping
-            print(json.dumps(result, indent=2, ensure_ascii=False))
+
+            # Member page -> list classes; class page -> list lessons
+            if "/class/" not in url:
+                classes = list_classes()
+                print(f"\nEnrolled Classes ({len(classes)})")
+                print("=" * 30)
+                for c in classes:
+                    print(f"  - {c['title']}")
+                    print(f"    {c['url']}")
+                print(json.dumps(classes, indent=2, ensure_ascii=False))
+            else:
+                result = list_lessons(url)
+                if result.get("error"):
+                    print(f"Error: {result['error']}", file=sys.stderr)
+                    sys.exit(1)
+                # Pretty-print the lesson list
+                print(f"\n{result.get('title', 'Unknown Class')}")
+                print(f"{'=' * len(result.get('title', ''))}")
+                for chapter in result.get("chapters", []):
+                    print(f"\n## {chapter['name']}")
+                    for lesson in chapter.get("lessons", []):
+                        duration = lesson.get("duration", "")
+                        video_id = lesson.get("videoId", "")
+                        dur_str = f" ({duration})" if duration else ""
+                        vid_str = f"  [videoId={video_id}]" if video_id else ""
+                        print(f"  - {lesson['title']}{dur_str}{vid_str}")
+                total = result.get("total_lessons", 0)
+                print(f"\nTotal: {total} lessons")
+                print(json.dumps(result, indent=2, ensure_ascii=False))
         return
 
     # Load hooks
