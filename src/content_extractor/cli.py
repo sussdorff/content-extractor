@@ -84,6 +84,8 @@ def parse_since(value: str) -> str:
 
 def detect_source(url: str) -> str:
     """Return a source type string based on URL patterns."""
+    if "agenticcoding.school" in url:
+        return "agenticcoding"
     if "substack.com" in url:
         return "substack"
     if any(d in url for d in MEDIUM_DOMAINS):
@@ -101,6 +103,9 @@ def _slug_from_url(url: str) -> str:
     """Derive an output directory slug from any URL."""
     parsed = urlparse(url)
     path = parsed.path.rstrip("/")
+    # AgenticCoding /member/class/slug
+    if "agenticcoding.school" in url and "/class/" in path:
+        return "agenticcoding-" + path.split("/class/")[-1]
     # Substack /p/slug
     if "/p/" in path:
         return path.split("/p/")[-1]

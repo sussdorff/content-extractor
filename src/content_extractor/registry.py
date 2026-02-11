@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .base import ExtractorRegistry
+from .adapters.agenticcoding import AgenticCodingAdapter
 from .adapters.catalog import CatalogAdapter
 from .adapters.drive import GoogleDriveAdapter
 from .adapters.generic_web import GenericWebAdapter
@@ -15,6 +16,7 @@ from .adapters.youtube import YouTubeAdapter
 def build_registry() -> ExtractorRegistry:
     """Build registry with all available adapters (order matters: first match wins)."""
     registry = ExtractorRegistry()
+    registry.register(AgenticCodingAdapter())
     registry.register(SubstackAdapter())
     registry.register(NotionAdapter())
     registry.register(GoogleDriveAdapter())
