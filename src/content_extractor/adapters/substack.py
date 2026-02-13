@@ -96,17 +96,22 @@ ARCHIVE_JS = """
 
 
 def scrape_archive(base_url: str, max_articles: int | None = None) -> list[dict]:
-    """Scrape the Substack archive for article metadata."""
+    """Scrape the Substack archive for article metadata.
+
+    Uses JavaScript scrollTo(bottom) to trigger Substack's infinite scroll,
+    which loads ~12 articles per batch. The ab_scroll_down() helper doesn't
+    reliably scroll the archive page, so we use direct JS execution instead.
+    """
     import sys
 
     archive_url = base_url.rstrip("/") + "/archive"
     print(f"Opening archive: {archive_url}", file=sys.stderr)
     ab_open(archive_url)
-    time.sleep(2)
+    time.sleep(3)
 
     prev_count = 0
     stale_rounds = 0
-    max_stale = 3
+    max_stale = 5
 
     while True:
         raw = ab_eval(ARCHIVE_JS)
@@ -128,12 +133,15 @@ def scrape_archive(base_url: str, max_articles: int | None = None) -> list[dict]
             stale_rounds += 1
             if stale_rounds >= max_stale:
                 break
+            # Wait longer on stale rounds before retrying
+            time.sleep(2 + stale_rounds)
         else:
             stale_rounds = 0
+            time.sleep(2)
 
         prev_count = count
-        ab_scroll_down(5)
-        time.sleep(1)
+        # Scroll to bottom via JS - triggers Substack's infinite scroll loader
+        ab_eval("window.scrollTo(0, document.body.scrollHeight)")
 
     print(f"Archive scrape complete: {len(articles)} articles", file=sys.stderr)
     return articles
