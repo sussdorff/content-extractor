@@ -25,6 +25,9 @@ def classify_link(url: str, text: str) -> dict | None:
     # Skip image URLs
     if "substackcdn.com/image" in url:
         return None
+    # Skip promotional tool links
+    if "heypresto.ai" in url:
+        return None
 
     resource_type = "external"
     if "notion.so" in url or "notion.site" in url:
@@ -343,6 +346,23 @@ def extract_article(url: str, output_dir: Path = DEFAULT_OUTPUT) -> dict:
 # Resource dispatch helpers
 # ---------------------------------------------------------------------------
 
+def _resource_subdir(article_dir: Path, url: str, resource_type: str) -> Path:
+    """Return output directory for a linked resource.
+
+    Safe adapters (notion, google_drive, excalidraw) use unique filenames
+    and get the parent article_dir directly.
+    Unsafe adapters (web, youtube, medium, substack) write main-article.md
+    and get an isolated subdirectory to prevent overwriting the parent article.
+    """
+    if resource_type in ("notion", "google_drive", "excalidraw"):
+        return article_dir
+
+    slug = _url_to_slug(url)
+    subdir = article_dir / "resources" / f"{resource_type}-{slug}"
+    subdir.mkdir(parents=True, exist_ok=True)
+    return subdir
+
+
 def dispatch_resources(
     metadata: dict, article_dir: Path, registry=None,
 ) -> list[dict]:
@@ -376,7 +396,8 @@ def dispatch_resources(
 
         resource_type = link.get("resourceType", "external")
         adapter = registry.get_adapter(url, resource_type)
-        result = adapter.extract(url, link.get("linkText", ""), article_dir)
+        target_dir = _resource_subdir(article_dir, url, resource_type)
+        result = adapter.extract(url, link.get("linkText", ""), target_dir)
         results.append(asdict(result) if hasattr(result, '__dataclass_fields__') else result)
 
     return results
