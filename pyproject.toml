@@ -5,6 +5,9 @@ description = "Pluggable content extraction framework — Extract stage of a kno
 requires-python = ">=3.12"
 readme = "README.md"
 license = "MIT"
+dependencies = [
+    "yt-dlp[curl-cffi]>=2026.2.4",
+]
 
 [project.scripts]
 content-extract = "content_extractor.cli:main"

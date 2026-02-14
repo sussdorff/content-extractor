@@ -31,6 +31,7 @@ def list_channel_videos(
     cmd = [
         "yt-dlp", "--dump-json", "--skip-download",
         "--no-warnings",
+        "--remote-components", "ejs:github",
         "--playlist-items", f"1-{limit}",
     ]
     if dateafter:
@@ -38,7 +39,8 @@ def list_channel_videos(
     cmd.append(url)
 
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-    if proc.returncode != 0:
+    # yt-dlp may return non-zero but still output valid JSON on stdout
+    if not proc.stdout.strip():
         return []
 
     videos = []
@@ -154,6 +156,7 @@ class YouTubeAdapter:
                     "yt-dlp",
                     "--write-auto-subs", "--sub-lang", "en",
                     "--skip-download", "--print-json",
+                    "--remote-components", "ejs:github",
                     "--paths", str(article_dir),
                     url,
                 ],
@@ -165,13 +168,21 @@ class YouTubeAdapter:
                 error="yt-dlp timed out",
             )
 
-        if proc.returncode != 0:
+        # yt-dlp may exit non-zero even when metadata was fetched successfully
+        # (e.g. subtitle download 429, n-challenge warnings). Try parsing stdout
+        # before giving up.
+        meta = None
+        if proc.stdout.strip():
+            try:
+                meta = json.loads(proc.stdout)
+            except json.JSONDecodeError:
+                pass
+
+        if meta is None:
             return ExtractionResult(
                 success=False, resource_type=self.resource_type,
                 error=f"yt-dlp failed: {proc.stderr.strip()[:200]}",
             )
-
-        meta = json.loads(proc.stdout)
 
         title = meta.get("title", link_text or "Untitled")
         channel = meta.get("channel", meta.get("uploader", ""))
