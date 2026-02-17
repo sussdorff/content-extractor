@@ -148,6 +148,7 @@ def extract_url(
     skip_resources: bool = False,
     hooks: list[PostExtractionHook] | None = None,
     since: str | None = None,
+    force: bool = False,
 ) -> dict:
     """Extract content from a single URL, auto-detecting the source type.
 
@@ -158,6 +159,7 @@ def extract_url(
         hooks: Optional list of post-extraction hooks to run.
         since: Optional date filter (e.g. ``4w``, ``30d``, ``2025-01-15``).
                Converted to ``YYYYMMDD`` for yt-dlp ``--dateafter``.
+        force: If True, re-extract even if output already exists.
 
     Returns:
         Dictionary with extraction results and metadata.
@@ -168,7 +170,7 @@ def extract_url(
     if source == "substack":
         out = _extract_substack(url, output_dir, skip_resources)
     else:
-        out = _extract_generic(url, source, output_dir, skip_resources, since=since)
+        out = _extract_generic(url, source, output_dir, skip_resources, since=since, force=force)
 
     # Run post-extraction hooks
     if hooks and out.get("success", True) and not out.get("error"):
@@ -191,6 +193,7 @@ def _extract_generic(
     output_dir: Path,
     skip_resources: bool,
     since: str | None = None,
+    force: bool = False,
 ) -> dict:
     """Handle non-Substack URLs via the registry."""
     registry = build_registry()
@@ -204,7 +207,7 @@ def _extract_generic(
     # Channel/playlist extraction for YouTube
     if source == "youtube" and is_channel_or_playlist(url):
         dateafter = parse_since(since) if since else None
-        out = adapter.extract_channel(url, article_dir, dateafter=dateafter)
+        out = adapter.extract_channel(url, article_dir, dateafter=dateafter, force=force)
         out["url"] = url
         out["source_type"] = source
         out["output_dir"] = str(article_dir)
@@ -333,6 +336,10 @@ def main():
         "--no-config-hooks", action="store_true",
         help="Disable loading hooks from .content-extractor.toml",
     )
+    parser.add_argument(
+        "--force", action="store_true",
+        help="Re-extract even if output already exists (skip dedup check)",
+    )
 
     args = parser.parse_args()
 
@@ -412,6 +419,7 @@ def main():
                 skip_resources=args.skip_resources,
                 hooks=all_hooks or None,
                 since=args.since,
+                force=args.force,
             )
             print(json.dumps(result, indent=2, ensure_ascii=False))
         else:
@@ -424,6 +432,7 @@ def main():
                     skip_resources=args.skip_resources,
                     hooks=all_hooks or None,
                     since=args.since,
+                    force=args.force,
                 )
                 results.append(result)
                 if i < len(urls):

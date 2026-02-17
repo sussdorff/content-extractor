@@ -72,6 +72,7 @@ class YouTubeAdapter:
         url: str,
         output_dir: Path,
         dateafter: str | None = None,
+        force: bool = False,
     ) -> dict:
         """Extract transcripts from all recent videos on a channel/playlist.
 
@@ -79,6 +80,7 @@ class YouTubeAdapter:
             url: Channel or playlist URL.
             output_dir: Base directory for per-video subdirectories.
             dateafter: Optional ``YYYYMMDD`` date filter for yt-dlp.
+            force: If True, re-extract even if output already exists.
 
         Returns:
             Summary dict with channel info and per-video results.
@@ -93,14 +95,32 @@ class YouTubeAdapter:
                 "videos": [],
                 "total": 0,
                 "extracted": 0,
+                "skipped": 0,
             }
 
         print(f"  Found {len(videos)} videos, extracting ...", file=sys.stderr)
         results: list[dict] = []
+        skipped = 0
         for i, video in enumerate(videos, 1):
             vid_url = video["url"]
             slug = f"youtube-{video['id']}" if video.get("id") else f"youtube-{i}"
             vid_dir = output_dir / slug
+
+            # Skip already-extracted videos unless --force
+            if not force and (vid_dir / "main-article.md").exists():
+                print(f"  [{i}/{len(videos)}] [skip] {video.get('title', vid_url)}", file=sys.stderr)
+                skipped += 1
+                results.append({
+                    "id": video["id"],
+                    "title": video.get("title", ""),
+                    "url": vid_url,
+                    "success": True,
+                    "skipped": True,
+                    "error": None,
+                    "files_created": [],
+                })
+                continue
+
             vid_dir.mkdir(parents=True, exist_ok=True)
 
             print(f"  [{i}/{len(videos)}] {video.get('title', vid_url)}", file=sys.stderr)
@@ -114,13 +134,14 @@ class YouTubeAdapter:
                 "files_created": result.files_created,
             })
 
-        extracted_count = sum(1 for r in results if r["success"])
+        extracted_count = sum(1 for r in results if r["success"] and not r.get("skipped"))
         summary = {
-            "success": extracted_count > 0,
+            "success": extracted_count > 0 or skipped > 0,
             "channel": url,
             "videos": results,
             "total": len(videos),
             "extracted": extracted_count,
+            "skipped": skipped,
         }
 
         # Write channel summary
@@ -130,8 +151,9 @@ class YouTubeAdapter:
             encoding="utf-8",
         )
 
+        skip_msg = f", {skipped} skipped" if skipped else ""
         print(
-            f"  Channel done: {extracted_count}/{len(videos)} videos extracted",
+            f"  Channel done: {extracted_count}/{len(videos)} videos extracted{skip_msg}",
             file=sys.stderr,
         )
         return summary
