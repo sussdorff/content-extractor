@@ -1,0 +1,10 @@
+{"created_at":"2026-02-24T09:14:58Z","created_by":"Malte Sussdorff","depends_on_id":"CE-849","issue_id":"CE-849.1","type":"parent-child"}
+{"created_at":"2026-02-24T09:15:10Z","created_by":"Malte Sussdorff","depends_on_id":"CE-849","issue_id":"CE-849.2","type":"parent-child"}
+{"created_at":"2026-02-24T09:15:24Z","created_by":"Malte Sussdorff","depends_on_id":"CE-849","issue_id":"CE-849.3","type":"parent-child"}
+{"created_at":"2026-02-24T09:16:21Z","created_by":"Malte Sussdorff","depends_on_id":"CE-849.2","issue_id":"CE-849.3","type":"blocks"}
+{"created_at":"2026-02-24T09:15:42Z","created_by":"Malte Sussdorff","depends_on_id":"CE-849","issue_id":"CE-849.4","type":"parent-child"}
+{"created_at":"2026-02-24T09:16:20Z","created_by":"Malte Sussdorff","depends_on_id":"CE-849.1","issue_id":"CE-849.4","type":"blocks"}
+{"created_at":"2026-02-24T09:15:55Z","created_by":"Malte Sussdorff","depends_on_id":"CE-849","issue_id":"CE-849.5","type":"parent-child"}
+{"created_at":"2026-02-24T09:16:20Z","created_by":"Malte Sussdorff","depends_on_id":"CE-849.1","issue_id":"CE-849.5","type":"blocks"}
+{"created_at":"2026-02-24T09:16:10Z","created_by":"Malte Sussdorff","depends_on_id":"CE-849","issue_id":"CE-849.6","type":"parent-child"}
+{"created_at":"2026-02-24T09:16:21Z","created_by":"Malte Sussdorff","depends_on_id":"CE-849.4","issue_id":"CE-849.6","type":"blocks"}
