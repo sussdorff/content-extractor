@@ -64,7 +64,7 @@ sync-branch: "beads-sync"
 # - linear.api-key
 # - github.org
 # - github.repo
-dolt.shared-server: true
+dolt.shared-server: false
 import.auto: false
 export.auto: false
 export.git-add: false
