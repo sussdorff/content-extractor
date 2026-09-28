@@ -1,6 +1,6 @@
 ---
 name: cognovis-pr
-description: Write the pull request title and body for a Cognovis delivery from the pr template plus evidence and residual sections; ccore owns publication and merge.
+description: Write the pull request title and body for a Cognovis delivery from the installed pr skill's template plus the local review, verification and residual sections; `ccore pr ensure` publishes it.
 compatibility: {}
 metadata: {}
 ---
@@ -8,8 +8,8 @@ metadata: {}
 # Cognovis Pull Requests
 
 Write one outcome-led pull request text that a reviewer can judge in a minute.
-This skill produces text only. `ccore pr ensure` publishes it and Ccore Session
-Close owns delivery choice, integration, merge, push, and cleanup. The Forgejo
+This skill produces text only. `ccore pr ensure` publishes it; the `executive-pack`
+delivery owns the merge decision. The Forgejo
 review channel is operated by `forgejo-review-channel`, not here.
 
 ## Inputs
@@ -17,6 +17,9 @@ review channel is operated by `forgejo-review-channel`, not here.
 - Repository root, the delivered change, the work order or spec it answers.
 - Verified evidence: commands run with verdicts, screenshots for a user-visible
   surface, and known residuals.
+- From the delivery: the `finding_triage.py --review-decisions` output, the
+  non-author verifier's verdict with the head SHA it verified, and the model route
+  each reviewer used.
 
 ## Outputs
 
@@ -26,15 +29,17 @@ review channel is operated by `forgejo-review-channel`, not here.
 
 ## Workflow
 
-1. Read `references/authoring.md`. When the `pr` skill from the Matt Pocock
-   catalog is installed, its template is the same one; this reference adds the
-   Cognovis sections and the handoff.
-2. Write Summary, Evidence, Merge Danger and Known residuals. Pick the smallest
-   Summary view that makes the change legible; do not narrate files.
-3. For a user-visible surface, capture two to four walkthrough screenshots and
-   attach them after the pull request exists, per the reference.
-4. Run the unslop checklist in the reference over the text.
-5. Hand the file to Session Close as its `--summary` value. Do not add the
+1. Read the installed `pr` skill, project-local before global, and use its live
+   template for the body. `references/authoring.md` resolves it and holds only
+   what Cognovis adds. Harness bootstrap installs `pr`; the Library does not ship
+   it, and a missing one is a setup failure to report.
+2. Write the body from that template, then add the Cognovis sections defined in
+   `references/authoring.md`: the work-order reference, Review decisions,
+   Verification, reviewer routes and Known residuals. That reference is the only
+   place this list is held; a caller supplies the content, not a second list.
+3. Attach walkthrough evidence only when a user-visible surface changed, after the
+   pull request exists, per the reference.
+4. Pass the file to `ccore pr ensure` as its `--summary` value. Do not add the
    identity footer; ccore appends harness, session and work-order identity.
 
 ## Do NOT
@@ -48,4 +53,4 @@ review channel is operated by `forgejo-review-channel`, not here.
 
 | File | Purpose |
 |---|---|
-| `references/authoring.md` | Title, body sections, screenshots, diagram rule, unslop checklist, ccore handoff. |
+| `references/authoring.md` | Resolving the installed `pr` skill, the title rule, the Cognovis sections, screenshot handling, ccore handoff. |

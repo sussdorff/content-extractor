@@ -4,7 +4,7 @@ Practical engineering principles that apply regardless of programming language, 
 
 ## Trigger Context
 
-Apply as general development guidance during implementation. These principles inform how code is written, not what is tested or reviewed (see `test-quality.md` and `code-review.md` for those).
+Apply as general development guidance during implementation. These principles inform how code is written, not what is tested or reviewed (see the installed `tdd` skill and `code-review.md` for those).
 
 ## Principles
 
@@ -127,7 +127,7 @@ These principles have one override: **shipping working software**. If following 
 
 1. Ship the pragmatic solution
 2. Document the shortcut
-3. Create an author-checked P3 refactor task with `bd create --body-file <file>`
+3. Create an author-checked refactor task with `ccore tracker create --repo <prefix> --body-file <file>`
 4. Move on
 
 Perfection is the enemy of done.
